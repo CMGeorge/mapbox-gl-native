@@ -11,7 +11,7 @@
 
 using namespace mbgl;
 
-class GlyphAtlasTest {
+class GlyphAtlasTest : public GlyphRequestor {
 public:
     util::RunLoop loop;
     StubFileSource fileSource;
@@ -24,6 +24,11 @@ public:
 
         glyphAtlas.setObserver(&observer);
         glyphAtlas.setURL(url);
+        GlyphDependencies glyphDependencies;
+        for (const auto& range : glyphRanges) {
+            glyphDependencies[fontStack].insert(range.first);
+        }
+        glyphAtlas.getGlyphs(1, glyphDependencies, *this);
         glyphAtlas.hasGlyphRanges(fontStack, glyphRanges);
 
         loop.run();
@@ -32,6 +37,8 @@ public:
     void end() {
         loop.stop();
     }
+    
+    virtual void onGlyphsAvailable(GlyphPositionMap) {}
 };
 
 TEST(GlyphAtlas, LoadingSuccess) {
@@ -53,8 +60,8 @@ TEST(GlyphAtlas, LoadingSuccess) {
         if (!test.glyphAtlas.hasGlyphRanges({{"Test Stack"}}, {{0, 255}, {256, 511}}))
             return;
 
-        auto glyphSet = test.glyphAtlas.getGlyphSet({{"Test Stack"}});
-        ASSERT_FALSE(glyphSet->getSDFs().empty());
+        auto& glyphSet = test.glyphAtlas.getGlyphSet({{"Test Stack"}});
+        ASSERT_FALSE(glyphSet.getSDFs().empty());
 
         test.end();
     };
@@ -83,7 +90,7 @@ TEST(GlyphAtlas, LoadingFail) {
         EXPECT_TRUE(error != nullptr);
         EXPECT_EQ(util::toString(error), "Failed by the test case");
 
-        ASSERT_TRUE(test.glyphAtlas.getGlyphSet({{"Test Stack"}})->getSDFs().empty());
+        ASSERT_TRUE(test.glyphAtlas.getGlyphSet({{"Test Stack"}}).getSDFs().empty());
         ASSERT_FALSE(test.glyphAtlas.hasGlyphRanges({{"Test Stack"}}, {{0, 255}}));
 
         test.end();
@@ -111,7 +118,7 @@ TEST(GlyphAtlas, LoadingCorrupted) {
         EXPECT_TRUE(error != nullptr);
         EXPECT_EQ(util::toString(error), "unknown pbf field type exception");
 
-        ASSERT_TRUE(test.glyphAtlas.getGlyphSet({{"Test Stack"}})->getSDFs().empty());
+        ASSERT_TRUE(test.glyphAtlas.getGlyphSet({{"Test Stack"}}).getSDFs().empty());
         ASSERT_FALSE(test.glyphAtlas.hasGlyphRanges({{"Test Stack"}}, {{0, 255}}));
 
         test.end();
@@ -145,19 +152,20 @@ TEST(GlyphAtlas, InvalidSDFGlyph) {
     const FontStack fontStack{ "Mock Font" };
 
     GlyphAtlasTest test;
-    GlyphPositions positions;
 
-    auto glyphSet = test.glyphAtlas.getGlyphSet(fontStack);
-    glyphSet->insert(66, SDFGlyph{ 66 /* ASCII 'B' */,
+    auto& glyphSet = test.glyphAtlas.getGlyphSet(fontStack);
+    glyphSet.insert(66, SDFGlyph{ 66 /* ASCII 'B' */,
                                   AlphaImage({7, 7}), /* correct */
                                   { 1 /* width */, 1 /* height */, 0 /* left */, 0 /* top */,
                                     0 /* advance */ } });
-    glyphSet->insert(67, SDFGlyph{ 67 /* ASCII 'C' */,
+    glyphSet.insert(67, SDFGlyph{ 67 /* ASCII 'C' */,
                                   AlphaImage({518, 8}), /* correct */
                                   { 512 /* width */, 2 /* height */, 0 /* left */, 0 /* top */,
                                     0 /* advance */ } });
 
-    test.glyphAtlas.addGlyphs(1, std::u16string{u"ABC"}, fontStack, glyphSet, positions);
+    GlyphDependencies glyphDependencies = {{fontStack, {'A','B','C'}}};
+    test.glyphAtlas.addGlyphs(1, glyphDependencies);
+    GlyphPositions positions = test.glyphAtlas.getGlyphPositions(glyphDependencies)[fontStack];
 
     ASSERT_EQ(2u, positions.size());
 
