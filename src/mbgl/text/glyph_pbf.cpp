@@ -132,4 +132,12 @@ GlyphPBF::GlyphPBF(GlyphAtlas* atlas,
 
 GlyphPBF::~GlyphPBF() = default;
 
+void GlyphPBF::addRequestor(GlyphRequestor& requestor) {
+    requestors.insert(&requestor);
+}
+
+std::set<GlyphRequestor*> GlyphPBF::processRequestors() {
+    return std::move(requestors);
+}
+
 } // namespace mbgl

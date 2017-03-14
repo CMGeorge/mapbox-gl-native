@@ -110,8 +110,6 @@ private:
         GlyphDependencies glyphDependencies;
     };
     std::unordered_map<GlyphRequestor*,TileDependency> tileDependencies;
-    typedef std::pair<FontStack,GlyphRange> PendingGlyphRange;
-    std::map<PendingGlyphRange, std::set<GlyphRequestor*>> pendingGlyphRanges;
 
     GlyphAtlasObserver* observer = nullptr;
 

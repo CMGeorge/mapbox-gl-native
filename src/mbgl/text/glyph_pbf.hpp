@@ -12,6 +12,7 @@
 namespace mbgl {
 
 class GlyphAtlas;
+class GlyphRequestor;
 class GlyphAtlasObserver;
 class AsyncRequest;
 class FileSource;
@@ -25,14 +26,18 @@ public:
              FileSource&);
     ~GlyphPBF();
 
+    void addRequestor(GlyphRequestor&);
+    std::set<GlyphRequestor*> processRequestors();
+    
     bool isParsed() const {
         return parsed;
     }
 
 private:
-    std::atomic<bool> parsed;
+    bool parsed;
     std::unique_ptr<AsyncRequest> req;
     GlyphAtlasObserver* observer = nullptr;
+    std::set<GlyphRequestor*> requestors;
 };
 
 } // namespace mbgl
