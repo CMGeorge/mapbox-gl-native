@@ -125,7 +125,6 @@ constexpr WritingModeType operator~(WritingModeType value) {
     return WritingModeType(~mbgl::underlying_type(value));
 }
 
-// TODO: Find a good place for these to live
 typedef std::map<FontStack,GlyphIDs> GlyphDependencies;
 typedef std::map<FontStack,GlyphRangeSet> GlyphRangeDependencies;
 typedef std::map<FontStack,GlyphPositions> GlyphPositionMap;
