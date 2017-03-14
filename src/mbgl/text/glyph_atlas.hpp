@@ -17,6 +17,8 @@
 #include <unordered_set>
 #include <unordered_map>
 
+class GlyphAtlasTest;
+
 namespace mbgl {
 
 class FileSource;
@@ -70,18 +72,18 @@ public:
     virtual void onGlyphsLoaded(const FontStack&, const GlyphRange&);
     virtual void onGlyphsError(const FontStack&, const GlyphRange&, std::exception_ptr);
     
-    // TODO: Only exposed for tests, maybe do this some other way?
-    bool hasGlyphRanges(const FontStack&, const GlyphRangeSet& ranges) const;
-    // TODO: Only made public for tests
+    friend class ::GlyphAtlasTest;
+private:
     void addGlyphs(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies);
     // Workers are given a copied 'GlyphPositions' map to use for placing their glyphs.
     // The positions specified in this object are guaranteed to be
     // valid for the lifetime of the tile.
     GlyphPositionMap getGlyphPositions(const GlyphDependencies& glyphs) const;
     
-private:
+    // Only used by GlyphAtlasTest
+    bool hasGlyphRanges(const FontStack&, const GlyphRangeSet& ranges) const;
     bool hasGlyphRange(const FontStack&, const GlyphRange& range) const;
-    
+
     void addGlyph(GlyphRequestor& requestor, const FontStack&, const SDFGlyph&);
     
     FileSource& fileSource;

@@ -28,10 +28,20 @@ public:
         for (const auto& range : glyphRanges) {
             glyphDependencies[fontStack].insert(range.first);
         }
-        glyphAtlas.getGlyphs(1, glyphDependencies, *this);
+        glyphAtlas.getGlyphs(*this, glyphDependencies);
         glyphAtlas.hasGlyphRanges(fontStack, glyphRanges);
 
         loop.run();
+    }
+    void addGlyphs(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies) {
+        glyphAtlas.addGlyphs(requestor, glyphDependencies);
+    }
+    GlyphPositionMap getGlyphPositions(const GlyphDependencies& glyphs) const {
+        return glyphAtlas.getGlyphPositions(glyphs);
+    }
+    
+    bool hasGlyphRanges(const FontStack& fontStack, const GlyphRangeSet& ranges) const {
+        return glyphAtlas.hasGlyphRanges(fontStack, ranges);
     }
 
     void end() {
@@ -57,7 +67,7 @@ TEST(GlyphAtlas, LoadingSuccess) {
     };
 
     test.observer.glyphsLoaded = [&] (const FontStack&, const GlyphRange&) {
-        if (!test.glyphAtlas.hasGlyphRanges({{"Test Stack"}}, {{0, 255}, {256, 511}}))
+        if (!test.hasGlyphRanges({{"Test Stack"}}, {{0, 255}, {256, 511}}))
             return;
 
         auto& glyphSet = test.glyphAtlas.getGlyphSet({{"Test Stack"}});
@@ -91,7 +101,7 @@ TEST(GlyphAtlas, LoadingFail) {
         EXPECT_EQ(util::toString(error), "Failed by the test case");
 
         ASSERT_TRUE(test.glyphAtlas.getGlyphSet({{"Test Stack"}}).getSDFs().empty());
-        ASSERT_FALSE(test.glyphAtlas.hasGlyphRanges({{"Test Stack"}}, {{0, 255}}));
+        ASSERT_FALSE(test.hasGlyphRanges({{"Test Stack"}}, {{0, 255}}));
 
         test.end();
     };
@@ -119,7 +129,7 @@ TEST(GlyphAtlas, LoadingCorrupted) {
         EXPECT_EQ(util::toString(error), "unknown pbf field type exception");
 
         ASSERT_TRUE(test.glyphAtlas.getGlyphSet({{"Test Stack"}}).getSDFs().empty());
-        ASSERT_FALSE(test.glyphAtlas.hasGlyphRanges({{"Test Stack"}}, {{0, 255}}));
+        ASSERT_FALSE(test.hasGlyphRanges({{"Test Stack"}}, {{0, 255}}));
 
         test.end();
     };
@@ -164,8 +174,8 @@ TEST(GlyphAtlas, InvalidSDFGlyph) {
                                     0 /* advance */ } });
 
     GlyphDependencies glyphDependencies = {{fontStack, {'A','B','C'}}};
-    test.glyphAtlas.addGlyphs(1, glyphDependencies);
-    GlyphPositions positions = test.glyphAtlas.getGlyphPositions(glyphDependencies)[fontStack];
+    test.addGlyphs(test, glyphDependencies);
+    GlyphPositions positions = test.getGlyphPositions(glyphDependencies)[fontStack];
 
     ASSERT_EQ(2u, positions.size());
 
