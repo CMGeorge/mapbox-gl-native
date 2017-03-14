@@ -38,7 +38,7 @@ GeometryTile::GeometryTile(const OverscaledTileID& id_,
 }
 
 GeometryTile::~GeometryTile() {
-    glyphAtlas.removeGlyphs(reinterpret_cast<uintptr_t>(this));
+    glyphAtlas.removeGlyphs(*this);
     cancel();
 }
 
@@ -137,7 +137,7 @@ void GeometryTile::onGlyphsAvailable(GlyphPositionMap glyphPositions) {
 }
 
 void GeometryTile::getGlyphs(GlyphDependencies glyphDependencies) {
-    glyphAtlas.getGlyphs(reinterpret_cast<uintptr_t>(this), std::move(glyphDependencies), *this);
+    glyphAtlas.getGlyphs(*this, std::move(glyphDependencies));
 }
 
 Bucket* GeometryTile::getBucket(const Layer& layer) {

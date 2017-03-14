@@ -47,7 +47,7 @@ public:
     // locally available, the observer will be notified that the glyphs are available
     // immediately. Otherwise, a request on the FileSource is made, and when all glyphs
     // are parsed and added to the atlas, the observer will be notified.
-    void getGlyphs(uintptr_t tileUID, GlyphDependencies glyphs, GlyphRequestor& requestor);
+    void getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphs);
 
     void setURL(const std::string &url) {
         glyphURL = url;
@@ -59,7 +59,7 @@ public:
 
     void setObserver(GlyphAtlasObserver* observer);
 
-    void removeGlyphs(uintptr_t tileUID);
+    void removeGlyphs(GlyphRequestor&);
 
     // Binds the atlas texture to the GPU, and uploads data if it is out of date.
     void bind(gl::Context&, gl::TextureUnit unit);
@@ -76,7 +76,7 @@ public:
     // TODO: Only exposed for tests, maybe do this some other way?
     bool hasGlyphRanges(const FontStack&, const GlyphRangeSet& ranges) const;
     // TODO: Only made public for tests
-    void addGlyphs(uintptr_t tileUID, const GlyphDependencies& glyphDependencies);
+    void addGlyphs(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies);
     // Workers are given a copied 'GlyphPositions' map to use for placing their glyphs.
     // The positions specified in this object are guaranteed to be
     // valid for the lifetime of the tile.
@@ -85,16 +85,16 @@ public:
 private:
     bool hasGlyphRange(const FontStack&, const GlyphRange& range) const;
     
-    void addGlyph(uintptr_t tileUID, const FontStack&, const SDFGlyph&);
+    void addGlyph(GlyphRequestor& requestor, const FontStack&, const SDFGlyph&);
     
     FileSource& fileSource;
     std::string glyphURL;
 
     struct GlyphValue {
-        GlyphValue(Rect<uint16_t> rect_, uintptr_t id)
+        GlyphValue(Rect<uint16_t> rect_, GlyphRequestor* id)
             : rect(std::move(rect_)), ids({ id }) {}
         Rect<uint16_t> rect;
-        std::unordered_set<uintptr_t> ids;
+        std::unordered_set<GlyphRequestor*> ids;
     };
 
     struct Entry {
@@ -106,16 +106,15 @@ private:
     std::unordered_map<FontStack, Entry, FontStackHash> entries;
     
     struct TileDependency {
-        TileDependency(const GlyphRangeDependencies& _pendingRanges, GlyphDependencies _glyphDependencies, GlyphRequestor* _requestor)
-            : pendingRanges(_pendingRanges), glyphDependencies(std::move(_glyphDependencies)), requestor(_requestor)
+        TileDependency(const GlyphRangeDependencies& _pendingRanges, GlyphDependencies _glyphDependencies)
+            : pendingRanges(_pendingRanges), glyphDependencies(std::move(_glyphDependencies))
         {}
         GlyphRangeDependencies pendingRanges;
         GlyphDependencies glyphDependencies;
-        GlyphRequestor* requestor;
     };
-    std::unordered_map<uintptr_t,TileDependency> tileDependencies;
+    std::unordered_map<GlyphRequestor*,TileDependency> tileDependencies;
     typedef std::pair<FontStack,GlyphRange> PendingGlyphRange;
-    std::map<PendingGlyphRange, std::set<uintptr_t>> pendingGlyphRanges;
+    std::map<PendingGlyphRange, std::set<GlyphRequestor*>> pendingGlyphRanges;
 
     GlyphAtlasObserver* observer = nullptr;
 

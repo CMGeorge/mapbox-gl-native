@@ -47,7 +47,7 @@ bool GlyphAtlas::hasGlyphRange(const FontStack& fontStack, const GlyphRange& ran
     return rangeIt->second.isParsed();
 }
     
-void GlyphAtlas::getGlyphs(uintptr_t tileUID, GlyphDependencies glyphDependencies, GlyphRequestor& requestor) {
+void GlyphAtlas::getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphDependencies) {
     // Figure out which glyph ranges need to be fetched
     GlyphRangeDependencies missing;
     for (const auto& fontStack : glyphDependencies) {
@@ -61,16 +61,16 @@ void GlyphAtlas::getGlyphs(uintptr_t tileUID, GlyphDependencies glyphDependencie
     
     if (missing.empty()) {
         // Send "glyphs available" message immediately to requestor
-        addGlyphs(tileUID, glyphDependencies);
+        addGlyphs(requestor, glyphDependencies);
         requestor.onGlyphsAvailable(getGlyphPositions(glyphDependencies));
     } else {
         // Trigger network requests for glyphs, send "glyphs available" message when all requests have finished
         tileDependencies.emplace(std::piecewise_construct,
-                                 std::forward_as_tuple(tileUID),
-                                 std::forward_as_tuple(missing, std::move(glyphDependencies), &requestor));
+                                 std::forward_as_tuple(&requestor),
+                                 std::forward_as_tuple(missing, std::move(glyphDependencies)));
         for (auto fontStack : missing) {
             for (auto& range : fontStack.second) {
-                pendingGlyphRanges[PendingGlyphRange(fontStack.first,range)].insert(tileUID);
+                pendingGlyphRanges[PendingGlyphRange(fontStack.first,range)].insert(&requestor);
                 
                 entries[fontStack.first].ranges.emplace(std::piecewise_construct,
                                std::forward_as_tuple(range),
@@ -93,8 +93,8 @@ void GlyphAtlas::onGlyphsError(const FontStack& fontStack, const GlyphRange& ran
 void GlyphAtlas::onGlyphsLoaded(const FontStack& fontStack, const GlyphRange& range) {
     auto dependendentTiles = pendingGlyphRanges.find(PendingGlyphRange(fontStack,range));
     if (dependendentTiles != pendingGlyphRanges.end()) {
-        for (auto tileUID : dependendentTiles->second) {
-            auto tileDependency = tileDependencies.find(tileUID);
+        for (auto requestor : dependendentTiles->second) {
+            auto tileDependency = tileDependencies.find(requestor);
             if (tileDependency != tileDependencies.end()) {
                 auto fontRanges = tileDependency->second.pendingRanges.find(fontStack);
                 if (fontRanges != tileDependency->second.pendingRanges.end()) {
@@ -104,9 +104,9 @@ void GlyphAtlas::onGlyphsLoaded(const FontStack& fontStack, const GlyphRange& ra
                     }
                 }
                 if (tileDependency->second.pendingRanges.empty()) {
-                    addGlyphs(tileUID, tileDependency->second.glyphDependencies);
-                    tileDependency->second.requestor->onGlyphsAvailable(getGlyphPositions(tileDependency->second.glyphDependencies));
-                    tileDependencies.erase(tileUID);
+                    addGlyphs(*requestor, tileDependency->second.glyphDependencies);
+                    tileDependency->first->onGlyphsAvailable(getGlyphPositions(tileDependency->second.glyphDependencies));
+                    tileDependencies.erase(requestor);
                 }
             }
         }
@@ -142,21 +142,21 @@ GlyphPositionMap GlyphAtlas::getGlyphPositions(const GlyphDependencies& glyphDep
     return glyphPositions;
 }
     
-void GlyphAtlas::addGlyphs(uintptr_t tileUID, const GlyphDependencies &glyphDependencies) {
+void GlyphAtlas::addGlyphs(GlyphRequestor& requestor, const GlyphDependencies &glyphDependencies) {
     for (const auto& fontStack : glyphDependencies) {
         const auto& sdfs = getGlyphSet(fontStack.first).getSDFs();
         for (auto glyphID : fontStack.second) {
             auto it = sdfs.find(glyphID);
             if (it != sdfs.end()) { // If we got the range, but still didn't get a glyph, go ahead with rendering
-                addGlyph(tileUID, fontStack.first, it->second);
+                addGlyph(requestor, fontStack.first, it->second);
             }
         }
     }
 }
 
-void GlyphAtlas::addGlyph(uintptr_t tileUID,
-                                    const FontStack& fontStack,
-                                    const SDFGlyph& glyph)
+void GlyphAtlas::addGlyph(GlyphRequestor& requestor,
+                          const FontStack& fontStack,
+                          const SDFGlyph& glyph)
 {
     std::map<uint32_t, GlyphValue>& face = entries[fontStack].glyphValues;
     auto it = face.find(glyph.id);
@@ -164,7 +164,7 @@ void GlyphAtlas::addGlyph(uintptr_t tileUID,
     // The glyph is already in this texture.
     if (it != face.end()) {
         GlyphValue& value = it->second;
-        value.ids.insert(tileUID);
+        value.ids.insert(&requestor);
         return;
     }
 
@@ -192,19 +192,19 @@ void GlyphAtlas::addGlyph(uintptr_t tileUID,
         return;
     }
 
-    face.emplace(glyph.id, GlyphValue { rect, tileUID });
+    face.emplace(glyph.id, GlyphValue { rect, &requestor });
 
     AlphaImage::copy(glyph.bitmap, image, { 0, 0 }, { rect.x + padding, rect.y + padding }, glyph.bitmap.size);
 
     dirty = true;
 }
 
-void GlyphAtlas::removeGlyphs(uintptr_t tileUID) {
+void GlyphAtlas::removeGlyphs(GlyphRequestor& requestor) {
     for (auto& entry : entries) {
         std::map<uint32_t, GlyphValue>& face = entry.second.glyphValues;
         for (auto it = face.begin(); it != face.end(); /* we advance in the body */) {
             GlyphValue& value = it->second;
-            value.ids.erase(tileUID);
+            value.ids.erase(&requestor);
 
             if (value.ids.empty()) {
                 const Rect<uint16_t>& rect = value.rect;
