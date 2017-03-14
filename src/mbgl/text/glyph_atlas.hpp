@@ -8,17 +8,14 @@
 #include <mbgl/util/noncopyable.hpp>
 #include <mbgl/util/optional.hpp>
 #include <mbgl/util/font_stack.hpp>
-#include <mbgl/util/exclusive.hpp>
 #include <mbgl/util/work_queue.hpp>
 #include <mbgl/util/image.hpp>
 #include <mbgl/gl/texture.hpp>
 #include <mbgl/gl/object.hpp>
 
-#include <atomic>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
-#include <mutex>
 
 namespace mbgl {
 
@@ -120,7 +117,7 @@ private:
 
     BinPack<uint16_t> bin;
     AlphaImage image;
-    std::atomic<bool> dirty;
+    bool dirty;
     mbgl::optional<gl::Texture> texture;
 };
 
