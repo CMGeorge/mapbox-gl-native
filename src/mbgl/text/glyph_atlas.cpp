@@ -35,26 +35,32 @@ bool GlyphAtlas::hasGlyphRanges(const FontStack& fontStack, const GlyphRangeSet&
     return true;
 }
     
-bool GlyphAtlas::hasGlyphRange(const FontStack& fontStack, const GlyphRange& range) const {
-    auto entry = entries.find(fontStack);
-    if (entry == entries.end())
-        return false;
-    
-    auto rangeIt = entry->second.ranges.find(range);
-    if (rangeIt == entry->second.ranges.end())
+bool rangeIsParsed(const std::map<GlyphRange, GlyphPBF>& ranges, const GlyphRange& range) {
+    auto rangeIt = ranges.find(range);
+    if (rangeIt == ranges.end())
         return false;
     
     return rangeIt->second.isParsed();
 }
     
+bool GlyphAtlas::hasGlyphRange(const FontStack& fontStack, const GlyphRange& range) const {
+    auto entry = entries.find(fontStack);
+    if (entry == entries.end())
+        return false;
+    
+    return rangeIsParsed(entry->second.ranges, range);
+}
+    
 void GlyphAtlas::getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphDependencies) {
     // Figure out which glyph ranges need to be fetched
     GlyphRangeDependencies missing;
-    for (const auto& fontStack : glyphDependencies) {
-        for (auto glyphID : fontStack.second) {
+    for (const auto& fontStackToGlyphIDs : glyphDependencies) {
+        auto fontStackEntry = entries.find(fontStackToGlyphIDs.first);
+        for (auto glyphID : fontStackToGlyphIDs.second) {
             GlyphRange range = getGlyphRange(glyphID);
-            if (!hasGlyphRange(fontStack.first,range)) {
-                missing[fontStack.first].insert(range);
+            if (fontStackEntry == entries.end() ||
+                !rangeIsParsed(fontStackEntry->second.ranges, range)) {
+                missing[fontStackToGlyphIDs.first].insert(range);
             }
         }
     }
@@ -68,13 +74,13 @@ void GlyphAtlas::getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphDep
         tileDependencies.emplace(std::piecewise_construct,
                                  std::forward_as_tuple(&requestor),
                                  std::forward_as_tuple(missing, std::move(glyphDependencies)));
-        for (auto fontStack : missing) {
-            for (auto& range : fontStack.second) {
-                entries[fontStack.first].ranges.emplace(std::piecewise_construct,
-                               std::forward_as_tuple(range),
-                               std::forward_as_tuple(this, fontStack.first, range, this, fileSource));
+        for (auto fontStackToGlyphIDs : missing) {
+            for (auto& range : fontStackToGlyphIDs.second) {
+                entries[fontStackToGlyphIDs.first].ranges.emplace(std::piecewise_construct,
+                                                                  std::forward_as_tuple(range),
+                                                                  std::forward_as_tuple(this, fontStackToGlyphIDs.first, range, this, fileSource));
                 
-                entries[fontStack.first].ranges.find(range)->second.addRequestor(requestor);
+                entries[fontStackToGlyphIDs.first].ranges.find(range)->second.addRequestor(requestor);
             }
         }
     }
@@ -122,19 +128,19 @@ void GlyphAtlas::onGlyphsLoaded(const FontStack& fontStack, const GlyphRange& ra
 GlyphPositionMap GlyphAtlas::getGlyphPositions(const GlyphDependencies& glyphDependencies) const {
     GlyphPositionMap glyphPositions;
 
-    for (const auto& fontStack : glyphDependencies) {
-        auto entry = entries.find(fontStack.first);
+    for (const auto& fontStackToGlyphIDs : glyphDependencies) {
+        auto entry = entries.find(fontStackToGlyphIDs.first);
         if (entry != entries.end()) {
 
-            for (GlyphID glyphID : fontStack.second) {
+            for (GlyphID glyphID : fontStackToGlyphIDs.second) {
                 auto sdf = entry->second.glyphSet.getSDFs().find(glyphID);
                 if (sdf != entry->second.glyphSet.getSDFs().end()) {
                     auto glyphRect = entry->second.glyphValues.find(glyphID);
                     // It's possible to have an SDF without a valid position (if the SDF was malformed). We indicate this case with Rect<uint16_t>(0,0,0,0).
                     const Rect<uint16_t> rect = glyphRect == entry->second.glyphValues.end() ? Rect<uint16_t>(0,0,0,0) : glyphRect->second.rect;
-                    glyphPositions[fontStack.first].emplace(std::piecewise_construct,
-                                                            std::forward_as_tuple(glyphID),
-                                                            std::forward_as_tuple(rect, sdf->second.metrics));
+                    glyphPositions[fontStackToGlyphIDs.first].emplace(std::piecewise_construct,
+                                                                      std::forward_as_tuple(glyphID),
+                                                                      std::forward_as_tuple(rect, sdf->second.metrics));
                 }
             }
         }
@@ -143,12 +149,12 @@ GlyphPositionMap GlyphAtlas::getGlyphPositions(const GlyphDependencies& glyphDep
 }
     
 void GlyphAtlas::addGlyphs(GlyphRequestor& requestor, const GlyphDependencies &glyphDependencies) {
-    for (const auto& fontStack : glyphDependencies) {
-        const auto& sdfs = getGlyphSet(fontStack.first).getSDFs();
-        for (auto glyphID : fontStack.second) {
+    for (const auto& fontStackToGlyphIDs : glyphDependencies) {
+        const auto& sdfs = getGlyphSet(fontStackToGlyphIDs.first).getSDFs();
+        for (auto glyphID : fontStackToGlyphIDs.second) {
             auto it = sdfs.find(glyphID);
             if (it != sdfs.end()) { // If we got the range, but still didn't get a glyph, go ahead with rendering
-                addGlyph(requestor, fontStack.first, it->second);
+                addGlyph(requestor, fontStackToGlyphIDs.first, it->second);
             }
         }
     }
