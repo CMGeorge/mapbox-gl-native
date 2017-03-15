@@ -52,37 +52,34 @@ bool GlyphAtlas::hasGlyphRange(const FontStack& fontStack, const GlyphRange& ran
 }
     
 void GlyphAtlas::getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphDependencies) {
-    // Figure out which glyph ranges need to be fetched
-    GlyphRangeDependencies missing;
-    for (const auto& fontStackToGlyphIDs : glyphDependencies) {
-        auto fontStackEntry = entries.find(fontStackToGlyphIDs.first);
-        for (auto glyphID : fontStackToGlyphIDs.second) {
+    auto dependencies = std::make_shared<GlyphDependencies>(std::move(glyphDependencies));
+
+    // Figure out which glyph ranges need to be fetched. For each range that does need to
+    // be fetched, record an entry mapping the requestor to a shared pointer containing the
+    // dependencies. When the shared pointer becomes unique, we know that all the dependencies
+    // for that requestor have been fetched, and can notify it of completion.
+    for (const auto& dependency : *dependencies) {
+        const FontStack& fontStack = dependency.first;
+        const GlyphIDs& glyphIDs = dependency.second;
+
+        Entry& entry = entries[fontStack];
+
+        for (const auto& glyphID : glyphIDs) {
             GlyphRange range = getGlyphRange(glyphID);
-            if (fontStackEntry == entries.end() ||
-                !rangeIsParsed(fontStackEntry->second.ranges, range)) {
-                missing[fontStackToGlyphIDs.first].insert(range);
+            if (!rangeIsParsed(entry.ranges, range)) {
+                entry.ranges.emplace(std::piecewise_construct,
+                                     std::forward_as_tuple(range),
+                                     std::forward_as_tuple(this, fontStack, range, this, fileSource));
+
+                entry.ranges.find(range)->second.requestors[&requestor] = dependencies;
             }
         }
     }
-    
-    if (missing.empty()) {
-        // Send "glyphs available" message immediately to requestor
-        addGlyphs(requestor, glyphDependencies);
-        requestor.onGlyphsAvailable(getGlyphPositions(glyphDependencies));
-    } else {
-        // Trigger network requests for glyphs, send "glyphs available" message when all requests have finished
-        tileDependencies.emplace(std::piecewise_construct,
-                                 std::forward_as_tuple(&requestor),
-                                 std::forward_as_tuple(missing, std::move(glyphDependencies)));
-        for (auto fontStackToGlyphIDs : missing) {
-            for (auto& range : fontStackToGlyphIDs.second) {
-                entries[fontStackToGlyphIDs.first].ranges.emplace(std::piecewise_construct,
-                                                                  std::forward_as_tuple(range),
-                                                                  std::forward_as_tuple(this, fontStackToGlyphIDs.first, range, this, fileSource));
-                
-                entries[fontStackToGlyphIDs.first].ranges.find(range)->second.addRequestor(requestor);
-            }
-        }
+
+    // If the shared dependencies pointer is already unique, then all dependent glyph ranges
+    // have already been loaded. Send a notification immediately.
+    if (dependencies.unique()) {
+        addGlyphs(requestor, *dependencies);
     }
 }
 
@@ -97,67 +94,57 @@ void GlyphAtlas::onGlyphsError(const FontStack& fontStack, const GlyphRange& ran
 }
 
 void GlyphAtlas::onGlyphsLoaded(const FontStack& fontStack, const GlyphRange& range) {
-    auto glyphPBF = entries[fontStack].ranges.find(range);
-    if (glyphPBF != entries[fontStack].ranges.end()) {
-        auto glyphRequestors = glyphPBF->second.processRequestors();
-        for (auto requestor : glyphRequestors) {
-            auto tileDependency = tileDependencies.find(requestor);
-            if (tileDependency != tileDependencies.end()) {
-                auto fontRanges = tileDependency->second.pendingRanges.find(fontStack);
-                if (fontRanges != tileDependency->second.pendingRanges.end()) {
-                    fontRanges->second.erase(range);
-                    if (fontRanges->second.empty()) {
-                        tileDependency->second.pendingRanges.erase(fontRanges);
-                    }
-                }
-                if (tileDependency->second.pendingRanges.empty()) {
-                    addGlyphs(*requestor, tileDependency->second.glyphDependencies);
-                    tileDependency->first->onGlyphsAvailable(getGlyphPositions(tileDependency->second.glyphDependencies));
-                    tileDependencies.erase(requestor);
-                }
+    Entry& entry = entries[fontStack];
+
+    auto it = entry.ranges.find(range);
+    if (it != entry.ranges.end()) {
+        for (auto& pair : it->second.requestors) {
+            GlyphRequestor& requestor = *pair.first;
+            const std::shared_ptr<GlyphDependencies>& dependencies = pair.second;
+            if (dependencies.unique()) {
+                addGlyphs(requestor, *dependencies);
             }
         }
+        it->second.requestors.clear();
     }
+
     if (observer) {
         observer->onGlyphsLoaded(fontStack, range);
     }
 }
-    
 
-// Builds up the set of glyph positions needed for a given tile; result is handed to worker threads
-GlyphPositionMap GlyphAtlas::getGlyphPositions(const GlyphDependencies& glyphDependencies) const {
+void GlyphAtlas::addGlyphs(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies) {
     GlyphPositionMap glyphPositions;
 
-    for (const auto& fontStackToGlyphIDs : glyphDependencies) {
-        auto entry = entries.find(fontStackToGlyphIDs.first);
-        if (entry != entries.end()) {
+    for (const auto& dependency : glyphDependencies) {
+        const FontStack& fontStack = dependency.first;
+        const GlyphIDs& glyphIDs = dependency.second;
 
-            for (GlyphID glyphID : fontStackToGlyphIDs.second) {
-                auto sdf = entry->second.glyphSet.getSDFs().find(glyphID);
-                if (sdf != entry->second.glyphSet.getSDFs().end()) {
-                    auto glyphRect = entry->second.glyphValues.find(glyphID);
-                    // It's possible to have an SDF without a valid position (if the SDF was malformed). We indicate this case with Rect<uint16_t>(0,0,0,0).
-                    const Rect<uint16_t> rect = glyphRect == entry->second.glyphValues.end() ? Rect<uint16_t>(0,0,0,0) : glyphRect->second.rect;
-                    glyphPositions[fontStackToGlyphIDs.first].emplace(std::piecewise_construct,
-                                                                      std::forward_as_tuple(glyphID),
-                                                                      std::forward_as_tuple(rect, sdf->second.metrics));
-                }
-            }
-        }
-    }
-    return glyphPositions;
-}
-    
-void GlyphAtlas::addGlyphs(GlyphRequestor& requestor, const GlyphDependencies &glyphDependencies) {
-    for (const auto& fontStackToGlyphIDs : glyphDependencies) {
-        const auto& sdfs = getGlyphSet(fontStackToGlyphIDs.first).getSDFs();
-        for (auto glyphID : fontStackToGlyphIDs.second) {
+        GlyphPositions& positions = glyphPositions[fontStack];
+        Entry& entry = entries[fontStack];
+        const auto& sdfs = entry.glyphSet.getSDFs();
+
+        for (const auto& glyphID : glyphIDs) {
             auto it = sdfs.find(glyphID);
-            if (it != sdfs.end()) { // If we got the range, but still didn't get a glyph, go ahead with rendering
-                addGlyph(requestor, fontStackToGlyphIDs.first, it->second);
-            }
+            if (it == sdfs.end())
+                continue;
+
+            addGlyph(requestor, fontStack, it->second);
+
+            // It's possible to have an SDF without a valid position (if the SDF was malformed).
+            // We indicate this case with Rect<uint16_t>(0,0,0,0).
+            auto glyphRect = entry.glyphValues.find(glyphID);
+            const Rect<uint16_t> rect = glyphRect == entry.glyphValues.end()
+                ? Rect<uint16_t>(0,0,0,0)
+                : glyphRect->second.rect;
+
+            positions.emplace(std::piecewise_construct,
+                              std::forward_as_tuple(glyphID),
+                              std::forward_as_tuple(rect, it->second.metrics));
         }
     }
+
+    requestor.onGlyphsAvailable(glyphPositions);
 }
 
 void GlyphAtlas::addGlyph(GlyphRequestor& requestor,

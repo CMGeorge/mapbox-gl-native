@@ -46,6 +46,9 @@ public:
     // locally available, the observer will be notified that the glyphs are available
     // immediately. Otherwise, a request on the FileSource is made, and when all glyphs
     // are parsed and added to the atlas, the observer will be notified.
+    // Workers are given a copied 'GlyphPositions' map to use for placing their glyphs.
+    // The positions specified in this object are guaranteed to be
+    // valid for the lifetime of the tile.
     void getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphs);
 
     void setURL(const std::string &url) {
@@ -73,13 +76,10 @@ public:
     virtual void onGlyphsError(const FontStack&, const GlyphRange&, std::exception_ptr);
     
     friend class ::GlyphAtlasTest;
+
 private:
     void addGlyphs(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies);
-    // Workers are given a copied 'GlyphPositions' map to use for placing their glyphs.
-    // The positions specified in this object are guaranteed to be
-    // valid for the lifetime of the tile.
-    GlyphPositionMap getGlyphPositions(const GlyphDependencies& glyphs) const;
-    
+
     // Only used by GlyphAtlasTest
     bool hasGlyphRanges(const FontStack&, const GlyphRangeSet& ranges) const;
     bool hasGlyphRange(const FontStack&, const GlyphRange& range) const;
@@ -103,15 +103,6 @@ private:
     };
 
     std::unordered_map<FontStack, Entry, FontStackHash> entries;
-    
-    struct TileDependency {
-        TileDependency(const GlyphRangeDependencies& _pendingRanges, GlyphDependencies _glyphDependencies)
-            : pendingRanges(_pendingRanges), glyphDependencies(std::move(_glyphDependencies))
-        {}
-        GlyphRangeDependencies pendingRanges;
-        GlyphDependencies glyphDependencies;
-    };
-    std::unordered_map<GlyphRequestor*,TileDependency> tileDependencies;
 
     GlyphAtlasObserver* observer = nullptr;
 

@@ -8,6 +8,7 @@
 #include <functional>
 #include <string>
 #include <memory>
+#include <unordered_map>
 
 namespace mbgl {
 
@@ -26,18 +27,14 @@ public:
              FileSource&);
     ~GlyphPBF();
 
-    void addRequestor(GlyphRequestor&);
-    std::set<GlyphRequestor*> processRequestors();
-    
     bool isParsed() const {
         return parsed;
     }
 
-private:
     bool parsed;
     std::unique_ptr<AsyncRequest> req;
     GlyphAtlasObserver* observer = nullptr;
-    std::set<GlyphRequestor*> requestors;
+    std::unordered_map<GlyphRequestor*, std::shared_ptr<GlyphDependencies>> requestors;
 };
 
 } // namespace mbgl
