@@ -17,6 +17,7 @@ public:
     StubFileSource fileSource;
     StubStyleObserver observer;
     GlyphAtlas glyphAtlas{ { 32, 32 }, fileSource };
+    GlyphPositionMap glyphPositions;
 
     void run(const std::string& url, const FontStack& fontStack, const GlyphRangeSet& glyphRanges) {
         // Squelch logging.
@@ -36,9 +37,6 @@ public:
     void addGlyphs(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies) {
         glyphAtlas.addGlyphs(requestor, glyphDependencies);
     }
-    GlyphPositionMap getGlyphPositions(const GlyphDependencies& glyphs) const {
-        return glyphAtlas.getGlyphPositions(glyphs);
-    }
     
     bool hasGlyphRanges(const FontStack& fontStack, const GlyphRangeSet& ranges) const {
         return glyphAtlas.hasGlyphRanges(fontStack, ranges);
@@ -48,7 +46,9 @@ public:
         loop.stop();
     }
     
-    virtual void onGlyphsAvailable(GlyphPositionMap) {}
+    virtual void onGlyphsAvailable(GlyphPositionMap positions) {
+        glyphPositions = std::move(positions);
+    }
 };
 
 TEST(GlyphAtlas, LoadingSuccess) {
@@ -175,7 +175,7 @@ TEST(GlyphAtlas, InvalidSDFGlyph) {
 
     GlyphDependencies glyphDependencies = {{fontStack, {'A','B','C'}}};
     test.addGlyphs(test, glyphDependencies);
-    GlyphPositions positions = test.getGlyphPositions(glyphDependencies)[fontStack];
+    GlyphPositions positions = test.glyphPositions[fontStack];
 
     ASSERT_EQ(2u, positions.size());
 
