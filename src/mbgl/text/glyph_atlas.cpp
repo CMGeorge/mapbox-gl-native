@@ -64,15 +64,19 @@ void GlyphAtlas::getGlyphs(GlyphRequestor& requestor, GlyphDependencies glyphDep
 
         Entry& entry = entries[fontStack];
 
+        GlyphRangeSet processedRanges;
         for (const auto& glyphID : glyphIDs) {
             GlyphRange range = getGlyphRange(glyphID);
-            if (!rangeIsParsed(entry.ranges, range)) {
-                entry.ranges.emplace(std::piecewise_construct,
-                                     std::forward_as_tuple(range),
-                                     std::forward_as_tuple(this, fontStack, range, this, fileSource));
+            if (processedRanges.find(range) == processedRanges.end() && !rangeIsParsed(entry.ranges, range)) {
+                if (entry.ranges.find(range) == entry.ranges.end()) {
+                    entry.ranges.emplace(std::piecewise_construct,
+                                         std::forward_as_tuple(range),
+                                         std::forward_as_tuple(this, fontStack, range, this, fileSource));
+                }
 
                 entry.ranges.find(range)->second.requestors[&requestor] = dependencies;
             }
+            processedRanges.insert(range);
         }
     }
 
