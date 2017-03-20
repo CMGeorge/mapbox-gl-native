@@ -192,36 +192,46 @@ void GlyphAtlas::addGlyph(GlyphRequestor& requestor,
     dirty = true;
 }
 
+void GlyphAtlas::removeGlyphValues(GlyphRequestor& requestor, std::map<uint32_t, GlyphValue>& face) {
+    for (auto it = face.begin(); it != face.end(); /* we advance in the body */) {
+        GlyphValue& value = it->second;
+        value.ids.erase(&requestor);
+
+        if (value.ids.empty()) {
+            const Rect<uint16_t>& rect = value.rect;
+
+            // Clear out the bitmap.
+            uint8_t *target = image.data.get();
+            for (uint32_t y = 0; y < rect.h; y++) {
+                uint32_t y1 = image.size.width * (rect.y + y) + rect.x;
+                for (uint32_t x = 0; x < rect.w; x++) {
+                    target[y1 + x] = 0;
+                }
+            }
+
+            bin.release(rect);
+
+            // Make sure to post-increment the iterator: This will return the
+            // current iterator, but will go to the next position before we
+            // erase the element from the map. That way, the iterator stays
+            // valid.
+            face.erase(it++);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void GlyphAtlas::removePendingRanges(mbgl::GlyphRequestor &requestor, std::map<GlyphRange, GlyphPBF> &ranges) {
+    for (auto it = ranges.begin(); it != ranges.end(); it++) {
+        it->second.requestors.erase(&requestor);
+    }
+}
+
 void GlyphAtlas::removeGlyphs(GlyphRequestor& requestor) {
     for (auto& entry : entries) {
-        std::map<uint32_t, GlyphValue>& face = entry.second.glyphValues;
-        for (auto it = face.begin(); it != face.end(); /* we advance in the body */) {
-            GlyphValue& value = it->second;
-            value.ids.erase(&requestor);
-
-            if (value.ids.empty()) {
-                const Rect<uint16_t>& rect = value.rect;
-
-                // Clear out the bitmap.
-                uint8_t *target = image.data.get();
-                for (uint32_t y = 0; y < rect.h; y++) {
-                    uint32_t y1 = image.size.width * (rect.y + y) + rect.x;
-                    for (uint32_t x = 0; x < rect.w; x++) {
-                        target[y1 + x] = 0;
-                    }
-                }
-
-                bin.release(rect);
-
-                // Make sure to post-increment the iterator: This will return the
-                // current iterator, but will go to the next position before we
-                // erase the element from the map. That way, the iterator stays
-                // valid.
-                face.erase(it++);
-            } else {
-                ++it;
-            }
-        }
+        removeGlyphValues(requestor, entry.second.glyphValues);
+        removePendingRanges(requestor, entry.second.ranges);
     }
 }
 

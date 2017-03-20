@@ -103,6 +103,9 @@ private:
     };
 
     std::unordered_map<FontStack, Entry, FontStackHash> entries;
+    
+    void removeGlyphValues(GlyphRequestor& requestor, std::map<uint32_t, GlyphValue>& face);
+    void removePendingRanges(GlyphRequestor& requestor, std::map<GlyphRange, GlyphPBF>& ranges);
 
     GlyphAtlasObserver* observer = nullptr;
 
